@@ -1,0 +1,10 @@
+services:
+  megaplan:
+    build: .
+    container_name: megaplan
+    ports:
+      - "8932:8932"
+    env_file: .env
+    volumes:
+      - ./data:/data          # the git-backed plan store (owned by uid 1000 on the NAS)
+    restart: unless-stopped

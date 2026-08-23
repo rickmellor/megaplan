@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "megaplan": { "type": "http", "url": "http://192.168.1.134:8932/mcp/" }
+  }
+}
