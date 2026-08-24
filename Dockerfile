@@ -7,7 +7,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py store.py memory.py /app/
+COPY app.py store.py memory.py schedule.py /app/
 
 # Run as uid 1000 so the bind-mounted /data git repo is owned by the NAS user.
 # HOME must be writable for `git config --global safe.directory`.
