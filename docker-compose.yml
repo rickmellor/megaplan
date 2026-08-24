@@ -51,5 +51,6 @@ services:
       - ./data:/data:ro
       - ./backups:/backups
       - ${MEGAPLAN_OFFSITE_DIR:-./offsite}:/offsite   # a share mirrored off-site by your cloud-sync tool
+    healthcheck: { disable: true }   # inherited HTTP check from the image; this container serves nothing
     logging: { driver: json-file, options: { max-size: "5m", max-file: "2" } }
     restart: unless-stopped
