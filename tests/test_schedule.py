@@ -409,6 +409,26 @@ def test_mermaid_output(data):
     assert "b (30%)" in out
 
 
+def test_mermaid_sections_follow_hierarchy_not_file_order(data):
+    """A top-level task after a summary belongs to `Tasks`, not to that summary's section."""
+    store, schedule = data
+    pid = mkplan(store, "## Tasks\n"
+                        "- [ ] Phase A  <!-- t1 -->\n"
+                        "  - [ ] inside  (dur: 1d)  <!-- t2 -->\n"
+                        "- [ ] standalone  (dur: 1d)  <!-- t3 -->\n",
+                 created="2026-09-01T00:00:00Z")
+    out = schedule.mermaid(pid).splitlines()
+    sec = {}
+    cur = None
+    for l in out:
+        if l.strip().startswith("section "):
+            cur = l.strip()[len("section "):]
+        elif ":" in l and cur:
+            sec.setdefault(cur, []).append(l.strip().split(" :")[0])
+    assert sec["Phase A"] == ["inside"]
+    assert sec["Tasks"] == ["standalone"]
+
+
 def test_mermaid_truncates_long_labels(data):
     """Real plan tasks carry paragraphs of notes; a 300-char bar label is not a chart."""
     store, schedule = data

@@ -337,16 +337,22 @@ def mermaid(pid: str, group: str = "outline", include_done: bool = True,
             buckets.setdefault(t.get("who") or "unassigned", []).append(t)
         groups = list(buckets.items())
     else:
-        groups, cur = [], ("", [])
+        # a leaf belongs to its OUTERMOST summary ancestor, not to whichever summary
+        # happened to come before it in the file
+        by_id = {t["id"]: t for t in sch["tasks"]}
+        groups, seen = [], {}
         for t in rows:
             if t["is_summary"]:
-                cur = (t["text"], [])
-                groups.append(cur)
-            else:
-                if not groups:
-                    cur = ("Tasks", [])
-                    groups.append(cur)
-                cur[1].append(t)
+                continue
+            root, node = None, t
+            while node.get("parent") and node["parent"] in by_id:
+                node = by_id[node["parent"]]
+                root = node
+            name = root["text"] if root else "Tasks"
+            if name not in seen:
+                seen[name] = (name, [])
+                groups.append(seen[name])
+            seen[name][1].append(t)
 
     for name, items in groups:
         if not items:
