@@ -409,6 +409,18 @@ def test_mermaid_output(data):
     assert "b (30%)" in out
 
 
+def test_mermaid_truncates_long_labels(data):
+    """Real plan tasks carry paragraphs of notes; a 300-char bar label is not a chart."""
+    store, schedule = data
+    long = "word " * 80
+    pid = mkplan(store, f"## Tasks\n- [ ] {long.strip()}  (dur: 1d)  <!-- t1 -->\n",
+                 created="2026-09-01T00:00:00Z")
+    line = [l for l in schedule.mermaid(pid).splitlines() if "word" in l][0]
+    assert "…" in line
+    assert len(line.split(" :")[0].strip()) <= 61
+    assert "…" not in schedule.mermaid(pid, label_max=0)
+
+
 def test_mermaid_group_by_who(data):
     store, schedule = data
     pid = mkplan(store, "## Tasks\n"

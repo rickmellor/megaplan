@@ -72,7 +72,8 @@ def do_action(action, p):
     if a == "gantt":
         return _safe(lambda: {"id": p["id"], "format": "mermaid",
                               "source": schedule.mermaid(p["id"], p.get("group", "outline"),
-                                                         p.get("include_done", True))})
+                                                         p.get("include_done", True),
+                                                         p.get("label_max", 60))})
     if a == "review":
         pl = _safe(store.get_plan, p["id"])
         if isinstance(pl, dict) and "error" in pl:
@@ -186,10 +187,11 @@ def rest_schedule(pid: str):
 
 
 @router.get("/plans/{pid}/gantt")
-def rest_gantt(pid: str, group: str = "outline", include_done: bool = True):
+def rest_gantt(pid: str, group: str = "outline", include_done: bool = True,
+               label_max: int = 60):
     try:
         return {"id": pid, "format": "mermaid",
-                "source": schedule.mermaid(pid, group, include_done)}
+                "source": schedule.mermaid(pid, group, include_done, label_max)}
     except KeyError:
         raise HTTPException(status_code=404, detail=f"not found: {pid}")
 
@@ -226,7 +228,8 @@ try:
                  dur: str = "", dep: str = "", pct: int | None = None, who: str = "",
                  start: str = "", deadline: str = "", o: str = "", m: str = "", p: str = "",
                  indent: str = "", schedule_start: str = "", group: str = "outline",
-                 include_done: bool = True, op: str = "capture") -> dict:
+                 include_done: bool = True, label_max: int = 60,
+                 op: str = "capture") -> dict:
         """The single MegaPlan tool — one entry for the whole persistent, git-backed,
         memory-informed plan store. Set `action` and pass only the params it needs.
 
@@ -242,7 +245,8 @@ try:
           review       id — plan + related plans/memory + blockers, in one call.
           schedule     id — CPM pass: computed start/end, early/late dates, total & free
                        float, critical path, and warnings. Dates are DERIVED, never stored.
-          gantt        id[, group=outline|who, include_done] — Mermaid `gantt` source.
+          gantt        id[, group=outline|who, include_done, label_max] — Mermaid `gantt`
+                       source (bar labels truncated to label_max chars, 0 = no limit).
 
         WRITE (auto-commit to git):
           save         title, body[, status, priority, tags, depends_on, est_hours] —

@@ -308,7 +308,18 @@ def _external_offsets(dep, anchor, warnings, seen):
 _MERMAID_BAD = str.maketrans({":": "∶", "#": "", ";": ","})
 
 
-def mermaid(pid: str, group: str = "outline", include_done: bool = True) -> str:
+def _label(text: str, tid: str, limit: int) -> str:
+    """Gantt bars are a few centimetres wide — plan prose has to be cut to fit."""
+    t = " ".join((text or "").split()).translate(_MERMAID_BAD).strip()
+    if not t:
+        return tid
+    if limit and len(t) > limit:
+        t = t[:limit].rstrip(" ,;-—") + "…"
+    return t
+
+
+def mermaid(pid: str, group: str = "outline", include_done: bool = True,
+            label_max: int = 60) -> str:
     """Mermaid `gantt` source for a plan.
 
     Mermaid limits worth knowing: no baseline bars, no assignee swimlanes (sections are the
@@ -340,7 +351,7 @@ def mermaid(pid: str, group: str = "outline", include_done: bool = True) -> str:
     for name, items in groups:
         if not items:
             continue
-        lines.append(f"    section {name.translate(_MERMAID_BAD)}")
+        lines.append(f"    section {_label(name, 'section', label_max)}")
         for t in items:
             tags = []
             if t["is_milestone"]:
@@ -351,7 +362,7 @@ def mermaid(pid: str, group: str = "outline", include_done: bool = True) -> str:
                 tags.append("done")
             elif t["pct"]:
                 tags.append("active")
-            label = t["text"].translate(_MERMAID_BAD).strip() or t["id"]
+            label = _label(t["text"], t["id"], label_max)
             if t["pct"] and not t["done"]:
                 label += f" ({t['pct']}%)"
             spec = ", ".join(tags + [t["id"], t["start"], f"{t['duration_days']:g}d"])
