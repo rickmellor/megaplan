@@ -8,3 +8,48 @@ services:
     volumes:
       - ./data:/data          # the git-backed plan store (owned by uid 1000 on the NAS)
     restart: unless-stopped
+
+  # git-bundle snapshots of the plan store → local rotation + an off-site share
+  # (a cloud-sync task mirrors /offsite). Same image as megaplan: it ships git.
+  megaplan-backup:
+    build: .
+    container_name: megaplan-backup
+    user: "0:0"          # /offsite is a root-owned share; /data is mounted read-only
+    environment:
+      BACKUP_INTERVAL_S: ${BACKUP_INTERVAL_S:-21600}
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+      OFFSITE_KEEP: ${OFFSITE_KEEP:-60}   # copies kept in /offsite (a share your cloud-sync tool mirrors off-site)
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        git config --global --add safe.directory /data
+        sleep 60
+        while :; do
+          head=$$(git -C /data rev-parse --short HEAD 2>/dev/null)
+          if [ -z "$$head" ]; then echo "backup FAILED (no repo at /data)"; sleep "$$BACKUP_INTERVAL_S"; continue; fi
+          # plan data is idle for long stretches — one bundle per commit, no churn
+          if ls /backups/*-$$head.bundle >/dev/null 2>&1; then
+            echo "backup skip (unchanged $$head)"
+          else
+            f=/backups/megaplan-$$(date +%F-%H%M)-$$head.bundle
+            if git -C /data bundle create "$$f.tmp" --all >/dev/null 2>&1; then
+              mv "$$f.tmp" "$$f"; echo "backup ok $$f"
+              ls -1t /backups/*.bundle 2>/dev/null | tail -n +$$((BACKUP_KEEP+1)) | xargs -r rm -f
+              # off-site copy: a world-readable mirror in /offsite
+              if [ -d /offsite ]; then
+                cp "$$f" "/offsite/$$(basename "$$f").tmp" && mv "/offsite/$$(basename "$$f").tmp" "/offsite/$$(basename "$$f")" \
+                  && chmod 644 "/offsite/$$(basename "$$f")" && echo "offsite copy ok"
+                ls -1t /offsite/*.bundle 2>/dev/null | tail -n +$$((OFFSITE_KEEP+1)) | xargs -r rm -f
+              fi
+            else
+              echo "backup FAILED"; rm -f "$$f.tmp"
+            fi
+          fi
+          sleep "$$BACKUP_INTERVAL_S"
+        done
+    volumes:
+      - ./data:/data:ro
+      - ./backups:/backups
+      - ${MEGAPLAN_OFFSITE_DIR:-./offsite}:/offsite   # a share mirrored off-site by your cloud-sync tool
+    logging: { driver: json-file, options: { max-size: "5m", max-file: "2" } }
+    restart: unless-stopped
