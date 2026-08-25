@@ -70,22 +70,60 @@ def _warnings(ws: list) -> str:
     return "\n".join(out)
 
 
-def _task_line(t: dict) -> str:
-    bits = []
-    if t.get("critical") and not t.get("is_summary"):
-        bits.append("critical")
-    if t.get("who"):
-        bits.append(str(t["who"]))
-    if t.get("deadline"):
-        bits.append(f"due {t['deadline']}"
-                    + (f" — **{t['deadline_missed_days']:g}d late**" if t.get("deadline_missed_days") else ""))
-    if t.get("est_hours"):
-        bits.append(f"est {_hours(t['est_hours'])}")
-    tail = f"  <sub>{' · '.join(bits)}</sub>" if bits else ""
+def _name_cell(t: dict, show_critical: bool = True) -> str:
+    """The Task column, MS-Project style: outline indent, then markers, then the name.
+
+    ✔ done · ⊘ blocked · ◆ milestone · ● on the critical path. Summary rows are bold, and their
+    dates are rolled up from their children rather than set on the row itself."""
     text = " ".join((t.get("text") or "").split())
     if len(text) > TASK_TEXT_MAX:      # plan tasks here run to essay length; a report is a summary
         text = text[:TASK_TEXT_MAX].rstrip(" ,;.—-") + "…"
-    return f"- `{t['id']}` {text}{tail}"
+    text = text.replace("|", "\\|")    # a pipe in prose would end the table cell
+    marks = ""
+    if t.get("done"):
+        marks += "✔ "
+    elif t.get("blocked"):
+        marks += "⊘ "
+    if t.get("is_milestone"):
+        marks += "◆ "
+    elif show_critical and t.get("critical") and not t.get("is_summary"):
+        marks += "● "
+    indent = "&nbsp;&nbsp;&nbsp;&nbsp;" * int(t.get("level") or 0)   # tables eat leading spaces
+    body = f"**{text}**" if t.get("is_summary") else text
+    return f"{indent}{marks}{body}"
+
+
+def _task_table(tasks: list, unscheduled: bool, undated: set) -> list:
+    """One ordered table in plan order, the way a Gantt view lists rows.
+
+    Dates and float are dropped when the plan has no durations — they would all be the same
+    invented day, and a column of fiction is worse than a missing column."""
+    cols = ["#", "Task", "Dur"]
+    if not unscheduled:
+        cols += ["Start", "Finish", "Float"]
+    cols += ["Pred", "Owner", "%"]
+    rows = ["| " + " | ".join(cols) + " |",
+            "|" + "|".join(["---"] * len(cols)) + "|"]
+    for t in tasks:
+        # On an unscheduled plan every task was ASSUMED to be a day and every task therefore
+        # lands on the critical path. Showing either would be inventing data, so a task with no
+        # declared duration gets a blank cell and the critical marker is suppressed entirely.
+        dur = "" if (t.get("is_summary") or t["id"] in undated) else (
+            "0d" if t.get("is_milestone") else store._fmt_dur(t.get("duration_days") or 0))
+        cells = [f"`{t['id']}`", _name_cell(t, show_critical=not unscheduled), dur]
+        if not unscheduled:
+            fl = t.get("total_float_days")
+            cells += [t.get("start") or "", t.get("end") or "",
+                      # a summary's duration and float are both rolled up from its children,
+                      # so neither belongs on the summary row itself
+                      "" if t.get("is_summary") else
+                      ("—" if t.get("critical") else (store._fmt_dur(fl) if fl else "0d"))]
+        pred = store._fmt_deps(t.get("deps") or [])
+        cells += [f"`{pred}`" if pred else "",
+                  str(t.get("who") or ""),
+                  f"{t.get('pct') or 0}%"]
+        rows.append("| " + " | ".join(cells) + " |")
+    return rows
 
 
 def _tracking(sch: dict) -> str:
@@ -212,12 +250,23 @@ def compose(pid: str) -> str:
         L += [track, ""]
 
     L += ["## Tasks", ""]
-    for label, group in (("In progress", wip), ("Blocked", blocked),
-                         ("Not started", todo), ("Complete", done)):
-        if not group:
-            continue
-        L += [f"### {label} ({len(group)})", ""]
-        L += [_task_line(t) for t in group]
+    L.append(f"{prog.get('done', 0)} done · {len(wip)} in progress · {len(blocked)} blocked · "
+             f"{len(todo)} not started"
+             + ("" if unscheduled else f" · {len(crit)} on the critical path"))
+    L.append("")
+    L += _task_table(tasks, unscheduled, undated)
+    L.append("")
+    legend = "✔ done · ⊘ blocked · ◆ milestone · **bold** = summary row"
+    if not unscheduled:
+        legend += " · ● critical path · Float = total slack, — on the critical path"
+    L.append(f"<sub>{legend}</sub>")
+    L.append("")
+    late = [t for t in tasks if t.get("deadline_missed_days")]
+    if late:
+        L += ["### Missed deadlines", ""]
+        for t in late:
+            L.append(f"- `{t['id']}` finishes {t['deadline_missed_days']:g}d after its "
+                     f"{t['deadline']} deadline")
         L.append("")
 
     L.append("---")

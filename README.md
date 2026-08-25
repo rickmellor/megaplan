@@ -82,8 +82,15 @@ export is the eventual answer for full fidelity.
 
 `render` composes a plan into one readable markdown document — intent (the plan's own prose, not
 a re-derivation from its tasks), a progress bar, effort, a schedule summary, grouped scheduler
-warnings, a Mermaid gantt, a baseline-tracking section when the plan has a baseline, and tasks
-grouped by state.
+warnings, a Mermaid gantt, a baseline-tracking section when the plan has a baseline, and a task
+table.
+
+The task table is a Gantt-view row per task, in plan order: id, outline-indented name, duration,
+start, finish, total float, predecessors in MS-Project notation, owner and percent complete —
+with `✔` done, `⊘` blocked, `◆` milestone, `●` on the critical path, and summary rows in bold.
+Duration and float are left blank on summary rows (both are rolled up from children), and on an
+unscheduled plan the date, float and critical columns are dropped entirely rather than filled
+with the scheduler's assumed one-day-per-task.
 
 ```bash
 curl -s -X POST http://<nas>:8932/op -d '{"action":"render","id":"<id>"}'
