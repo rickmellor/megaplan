@@ -78,6 +78,35 @@ Mermaid limits worth knowing: no baseline bars, no assignee swimlanes (sections 
 grouping), and lag is not drawn — it is implicit in the computed bar positions. An MSPDI XML
 export is the eventual answer for full fidelity.
 
+## Progress reports
+
+`render` composes a plan into one readable markdown document — intent (the plan's own prose, not
+a re-derivation from its tasks), a progress bar, effort, a schedule summary, grouped scheduler
+warnings, a Mermaid gantt, a baseline-tracking section when the plan has a baseline, and tasks
+grouped by state.
+
+```bash
+curl -s -X POST http://<nas>:8932/op -d '{"action":"render","id":"<id>"}'
+#  -> {"url": "http://<nas>:8932/reports/<id>-20260825-111806.md",
+#      "latest_url": "http://<nas>:8932/reports/<id>-latest.md", ...}
+curl -s http://<nas>:8932/reports                 # every saved report, newest first
+```
+
+Reports are written to `reports/` inside the store and committed like any other mutation — a
+progress report is a point-in-time record, which is exactly the kind of thing worth having
+history for. Each render writes a timestamped file plus a `-latest.md` that keeps a stable URL.
+`save: false` returns the markdown inline without writing. `store.list_plans` globs `*.md`
+non-recursively, so the subdirectory is invisible to the plan store itself.
+
+Two honest limits worth knowing:
+
+- **Mermaid cannot overlay baseline bars** (see the note under Scheduling). So the tracking view
+  is a variance table for precision, plus a second, deliberately small gantt containing *only*
+  the tasks that actually moved — the part anyone actually looks at.
+- **An unscheduled plan still produces a schedule.** With no `dur`, every task defaults to a day,
+  which makes the project look one day long and puts every task on the critical path. Rather than
+  present that as fact, the report detects it and says so.
+
 ## Deploy (NAS: /volume1/docker/megaplan)
 
 ```bash

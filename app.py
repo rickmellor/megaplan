@@ -12,17 +12,19 @@ informed by a memory service (retrieval, soft dependency) but stored only here.
 import os
 
 from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 import memory
+import report
 import schedule
 import store
 
 store.ensure_repo()
 
 VALID_ACTIONS = ("context", "list", "get", "deps", "graph", "blocked_by", "time_report",
-                 "review", "schedule", "gantt", "save", "update", "add_task", "update_task",
-                 "complete", "depend", "log_time", "archive", "baseline")
+                 "review", "schedule", "gantt", "render", "reports", "save", "update",
+                 "add_task", "update_task", "complete", "depend", "log_time", "archive", "baseline")
 
 # scheduling attributes accepted by save/add_task/update_task
 SCHED_PARAMS = ("dur", "dep", "pct", "who", "start", "deadline", "o", "m", "p")
@@ -74,6 +76,10 @@ def do_action(action, p):
                               "source": schedule.mermaid(p["id"], p.get("group", "outline"),
                                                          p.get("include_done", True),
                                                          p.get("label_max", 60))})
+    if a == "render":
+        return _safe(report.render, p["id"], p.get("save", True))
+    if a == "reports":
+        return report.list_reports(p.get("id") or None)
     if a == "review":
         pl = _safe(store.get_plan, p["id"])
         if isinstance(pl, dict) and "error" in pl:
@@ -196,6 +202,23 @@ def rest_gantt(pid: str, group: str = "outline", include_done: bool = True,
         raise HTTPException(status_code=404, detail=f"not found: {pid}")
 
 
+@router.get("/reports")
+def rest_reports(id: str | None = None):
+    return report.list_reports(id)
+
+
+@router.get("/reports/{name}")
+def rest_report(name: str):
+    """Serve a saved report as markdown. Name-only (no path separators) — the reports dir is
+    not a file server."""
+    if "/" in name or "\\" in name or not name.endswith(".md"):
+        raise HTTPException(400, "reports are addressed by file name")
+    path = os.path.join(report.reports_dir(), name)
+    if not os.path.isfile(path):
+        raise HTTPException(404, f"no report {name}")
+    return PlainTextResponse(open(path, encoding="utf-8").read(), media_type="text/markdown")
+
+
 @router.post("/context")
 def rest_context(req: ContextReq):
     return memory.plan_context(req.goal, req.tags, req.limit)
@@ -247,6 +270,17 @@ try:
                        float, critical path, and warnings. Dates are DERIVED, never stored.
           gantt        id[, group=outline|who, include_done, label_max] — Mermaid `gantt`
                        source (bar labels truncated to label_max chars, 0 = no limit).
+          reports      [id] — saved reports, newest first, with their URLs.
+
+        RENDER (writes a file, auto-commits):
+          render       id[, save=true] — a full progress report for a plan as ONE markdown
+                       document: intent, progress bar, effort, schedule summary, scheduler
+                       warnings, a Mermaid gantt, a baseline-tracking section when the plan
+                       has a baseline, and tasks grouped by state. Saved under reports/ in
+                       the store and returned with a `url` — hand the user that URL rather
+                       than pasting the whole report. `save=false` returns the markdown
+                       inline without writing anything. Use this when someone asks how a
+                       plan/project is going, for a status write-up, or for charts.
 
         WRITE (auto-commit to git):
           save         title, body[, status, priority, tags, depends_on, est_hours] —
