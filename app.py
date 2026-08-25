@@ -23,8 +23,7 @@ import store
 store.ensure_repo()
 
 VALID_ACTIONS = ("context", "list", "get", "deps", "graph", "blocked_by", "time_report",
-                 "review", "schedule", "gantt", "report", "render", "portfolio", "reports",
-                 "save", "update",
+                 "review", "schedule", "gantt", "report", "portfolio", "reports", "save", "update",
                  "add_task", "update_task", "complete", "depend", "log_time", "archive", "baseline")
 
 # scheduling attributes accepted by save/add_task/update_task
@@ -52,8 +51,7 @@ def _exists(pid):
 # What each action cannot work without. Checked up front because the branches below index
 # `p` directly, and a bare KeyError escapes _safe — over REST that surfaced as a 500.
 REQUIRED = {"get": ("id",), "deps": ("id",), "blocked_by": ("id",), "review": ("id",),
-            "schedule": ("id",), "gantt": ("id",), "report": ("id",), "render": ("id",),
-            "update": ("id",),
+            "schedule": ("id",), "gantt": ("id",), "report": ("id",), "update": ("id",),
             "add_task": ("id", "text"), "update_task": ("id", "task_id"),
             "complete": ("id", "task_id"), "depend": ("id", "depends_on_id"),
             "log_time": ("id", "hours"), "archive": ("id",), "baseline": ("id",),
@@ -111,7 +109,7 @@ def do_action(action, p):
                               "source": schedule.mermaid(p["id"], p.get("group", "outline"),
                                                          p.get("include_done", True),
                                                          p.get("label_max", 60))})
-    if a in ("report", "render"):        # `render` kept as an alias: it shipped under that name
+    if a == "report":
         return _safe(report.render, p["id"], p.get("save", True))
     if a == "portfolio":
         return report.render_portfolio(p.get("save", True), p.get("include_done", False))
@@ -336,8 +334,8 @@ try:
                        than pasting the whole report. `save=false` returns the markdown
                        inline without writing anything. Use this when someone asks how a
                        plan/project is going, for a status write-up, or for charts.
-                       (`render` is accepted as an alias. NOTE the plural `reports` LISTS
-                       saved reports — it does not make one.)
+                       (NOTE the plural `reports` LISTS saved reports; it does not
+                       make one.)
 
         WRITE (auto-commit to git):
           save         title, body[, status, priority, tags, depends_on, est_hours] —

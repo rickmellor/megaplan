@@ -121,7 +121,7 @@ write plans are powered off.
 
 Reports are written to `reports/` inside the store and committed like any other mutation — a
 progress report is a point-in-time record, which is exactly the kind of thing worth having
-history for. Each render writes a timestamped file plus a `-latest.md` that keeps a stable URL.
+history for. Each report writes a timestamped file plus a `-latest.md` that keeps a stable URL.
 `save: false` returns the markdown inline without writing. `store.list_plans` globs `*.md`
 non-recursively, so the subdirectory is invisible to the plan store itself.
 
@@ -158,7 +158,7 @@ tar czf - Dockerfile docker-compose.yml app.py store.py memory.py schedule.py re
 
 | variable | why it matters |
 |---|---|
-| `MEGAPLAN_PUBLIC_URL` | how clients reach this box. `render` builds report URLs from it — leave it `localhost` and every report link is wrong |
+| `MEGAPLAN_PUBLIC_URL` | how clients reach this box. `report` builds report URLs from it — leave it `localhost` and every report link is wrong |
 | `MEGAPLAN_DATA_PATH` | `/data` inside the container; leave it alone unless you change the mount |
 | `MEGAPLAN_GIT_NAME` / `_EMAIL` | the identity on every auto-commit |
 | `MEGAPLAN_MEMORY_URL` | optional — an Astoria `/recall` endpoint for related-plan context. Absent or unreachable just degrades `context`; nothing else notices |
@@ -211,7 +211,7 @@ is a half-finished install, not a broken one.
 }
 ```
 
-This gives the model the single `megaplan` tool — every action above, including `render`.
+This gives the model the single `megaplan` tool — every action above, including `report`.
 
 **2. The `/megaplan` command** — the interactive planning mode (research → discuss → persist):
 
@@ -246,7 +246,7 @@ ships with the client.
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements.txt pytest
-.venv/bin/pytest tests/ -q      # 54 tests: parse/render round-trip + the CPM engine
+.venv/bin/pytest tests/ -q      # 65 tests: parse/render round-trip, the CPM engine, integrity guards
 ```
 
 The round-trip tests matter: `update_task` rewrites every checklist line, so a renderer bug

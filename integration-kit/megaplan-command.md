@@ -1,6 +1,6 @@
 ---
 description: MegaPlan mode — interactively research, discuss, and refine a build plan, then persist it to the unified MegaPlan store
-argument-hint: "[nothing = list] | <goal> | <plan-id> | show|schedule|gantt|report <id> | portfolio"
+argument-hint: "[nothing = list] | <goal> | <plan-id> | show|schedule|gantt|report <id> | reports | portfolio"
 ---
 
 You are now in **MegaPlan mode** — a distinct, interactive planning experience. Do NOT use Claude Code's built-in plan mode / `ExitPlanMode` here; this is its own flow that ends by persisting to the MegaPlan store, so the plan outlives the session and informs future plans.
@@ -23,7 +23,9 @@ starts the planning conversation.
 | `schedule <id>` | `megaplan(action="schedule", id=…)` → finish date, critical path, and any **warnings** (never skip those). |
 | `gantt <id>` | `megaplan(action="gantt", id=…)` → show the mermaid source in a ```mermaid block so it renders. |
 | `report <id>` | `megaplan(action="report", id=…)` → hand over the returned `url` (a saved report with the gantt drawn). |
+| `reports` | `megaplan(action="reports")` → the reports already saved, newest first, with their URLs. Add an id to filter to one plan. |
 | an existing **plan id** | Revisit it: `megaplan(action="review", id=…)`, summarise where it stands, then run the planning loop to refine it. |
+| a bare word that looks like an action but is not listed | Do NOT treat it as a goal. Check the `megaplan` tool's own action list, run it if it exists, and otherwise say so and show the menu. |
 | anything else | Treat it as a **goal** and run the planning loop. |
 
 The menu to show when they arrive with nothing:
@@ -36,6 +38,7 @@ The menu to show when they arrive with nothing:
 /megaplan schedule <id>   dates, critical path, warnings
 /megaplan gantt <id>      the chart, inline
 /megaplan report <id>     a saved report with the chart drawn (returns a URL)
+/megaplan reports         reports already saved, with their URLs
 /megaplan portfolio       one report across every active plan
 ```
 
