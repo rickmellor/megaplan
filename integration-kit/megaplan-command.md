@@ -20,7 +20,11 @@ Run this loop — the conversation IS the planning experience; the tool only gro
 4. **Persist on approval.** When the user approves, write the whole plan in ONE call:
    `megaplan(action="save", title=…, body="<markdown WITH a '## Tasks' checklist>", priority="low|medium|high|critical", tags=[…], depends_on=[<related plan ids>])`
    - Put the full plan in `body`: goal/context prose, then a `## Tasks` section of `- [ ] task (est: 2h)` checkboxes (they get stable ids automatically), then any `## Notes`.
-   - Prefer ONE rich `save` over many `add_task` calls.
-   - If revisiting, pass the existing `id` to update in place. If it depends on other plans, include their ids in `depends_on`.
+   - Prefer ONE rich `save` over many `add_task` calls. On an existing `id`, `body` REPLACES the stored body — that is the intended way to revise a plan; use `update_task`/`add_task` for single edits.
+   - If it depends on other plans, include their ids in `depends_on`.
+   - **Give tasks durations when order matters.** `est` is effort, `dur` is elapsed time, and only `dur` + `dep` produce a schedule. A plan whose tasks carry neither is a checklist: every task is assumed to take a day, so the project looks one day long and everything lands on the critical path. Write `- [ ] the task  (est: 6h, dur: 3d, dep: t2)` where the sequence is real, and leave both off where it genuinely is just a list.
+   - Indentation makes hierarchy. A `dep` **on a summary task is ignored** — link its leaf children instead, or its successor will not wait for them.
 
-5. **Hand off.** Report the saved plan id and how to continue it: revisit with `/megaplan <id>`, track with `megaplan` `complete`/`log_time`, re-ground with `action="review"`.
+5. **Show the schedule.** After saving a plan that has any durations, call `megaplan(action="schedule", id=…)` and tell the user what it means: the finish date, the critical path, and — importantly — any `warnings`. Warnings are how a wrong dependency or an ignored summary link becomes visible; do not skip them. Offer `megaplan(action="gantt", id=…)` for the chart inline, or `megaplan(action="render", id=…)` for a saved report with the gantt drawn, whose `url` you can hand over.
+
+6. **Hand off.** Report the saved plan id and how to continue it: revisit with `/megaplan <id>`, track with `megaplan` `complete`/`log_time`, re-ground with `action="review"`, see where everything stands with `action="portfolio"`.
