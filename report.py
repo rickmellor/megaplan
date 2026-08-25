@@ -70,6 +70,25 @@ def _warnings(ws: list) -> str:
     return "\n".join(out)
 
 
+def _plan_refs(items) -> str:
+    """Render plan references. `blocked_by` hands back plan SUMMARY DICTS, not ids — printing
+    them straight put a whole dict in the report — while `list_dependencies` hands back bare id
+    strings. Accept either."""
+    out = []
+    for it in items or []:
+        if isinstance(it, dict):
+            pid, title, status = it.get("id", "?"), it.get("title") or "", it.get("status") or ""
+            label = f"`{pid}`"
+            if title:
+                label += f" {title[:40]}"
+            if status in ("missing", "archived"):
+                label += f" *({status})*"
+            out.append(label)
+        else:
+            out.append(f"`{it}`")
+    return ", ".join(out)
+
+
 def _wbs(tasks: list) -> dict:
     """Outline numbers (1, 1.1, 1.1.2) from the task hierarchy — what MS Project calls WBS.
     Derived on read like everything else here; nothing is stored."""
@@ -288,9 +307,9 @@ def compose(pid: str) -> str:
     if sch.get("pert_sigma_days"):
         rows.append(f"| Confidence | PERT σ ±{sch['pert_sigma_days']:g} days on the critical path |")
     if blocked_by:
-        rows.append(f"| Blocked by | {', '.join(f'`{b}`' for b in blocked_by)} |")
-    if (deps or {}).get("dependents"):
-        rows.append(f"| Blocks | {', '.join(f'`{d}`' for d in deps['dependents'])} |")
+        rows.append(f"| Blocked by | {_plan_refs(blocked_by)} |")
+    if (deps or {}).get("depended_on_by"):      # NOT "dependents" — that key never existed
+        rows.append(f"| Blocks | {_plan_refs(deps['depended_on_by'])} |")
     L += ["## Where it stands", "", "| | |", "|---|---|", *rows, ""]
 
     warn = _warnings(sch.get("warnings") or [])
@@ -508,7 +527,7 @@ def compose_portfolio(include_done: bool = False) -> str:
     for r in sorted(rows, key=lambda x: (x["status"] != "active", -(x["prog"].get("pct") or 0))):
         pr = r["prog"]
         when = f"{r['start']} → {r['finish']}" if r["start"] else "—"
-        blocked = ", ".join(f"`{b}`" for b in r["blocked_by"]) or "—"
+        blocked = _plan_refs(r["blocked_by"]) or "—"
         L.append(f"| [{r['title'][:52]}]({PUBLIC_URL}/reports/{r['id']}-latest.html) "
                  f"| {r['status']} | {pr.get('pct', 0)}% ({pr.get('done', 0)}/{pr.get('total', 0)}) "
                  f"| {when} | {blocked} |")
@@ -530,8 +549,7 @@ def compose_portfolio(include_done: bool = False) -> str:
     if stuck:
         L += ["## Blocked", ""]
         for r in stuck:
-            L.append(f"- **{r['title'][:60]}** waits on "
-                     + ", ".join(f"`{b}`" for b in r["blocked_by"]))
+            L.append(f"- **{r['title'][:60]}** waits on {_plan_refs(r['blocked_by'])}")
         L.append("")
 
     L.append("---")

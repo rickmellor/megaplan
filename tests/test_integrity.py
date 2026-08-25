@@ -99,3 +99,18 @@ def test_a_scheduling_attribute_can_be_cleared(mp):
     t2 = [t for t in store.get_plan(pid)["tasks"] if t["id"] == "t2"][0]
     assert not t2["deps"], "dep should be gone"
     assert t2["who"] == "rick", "clearing one attribute must not touch the others"
+
+
+def test_plan_references_never_leak_raw_dicts():
+    """`blocked_by` returns plan SUMMARY DICTS while `list_dependencies` returns bare ids.
+    A report that assumes one shape prints the other verbatim — which is how a whole dict
+    ended up in the portfolio."""
+    import report
+    dicts = [{"id": "20260820-megaplan-rollout", "title": "MegaPlan rollout",
+              "status": "archived", "progress": {"done": 0, "total": 0}}]
+    out = report._plan_refs(dicts)
+    assert "{" not in out and "'id'" not in out, "a dict must never reach the page"
+    assert "20260820-megaplan-rollout" in out and "MegaPlan rollout" in out
+    assert "(archived)" in out
+    assert report._plan_refs(["plan-a", "plan-b"]) == "`plan-a`, `plan-b`"   # bare ids too
+    assert report._plan_refs([]) == "" and report._plan_refs(None) == ""
