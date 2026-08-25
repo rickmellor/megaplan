@@ -460,3 +460,31 @@ def test_mermaid_escapes_colons(data):
     out = schedule.mermaid(pid)
     body = [l for l in out.splitlines() if "the thing" in l][0]
     assert body.count(":") == 1
+
+
+# --- report derivations (WBS, planned %, duration display) --------------------------------------
+def test_wbs_numbers_follow_the_outline():
+    import report
+    tasks = [{"id": "t1", "level": 0}, {"id": "t2", "level": 0}, {"id": "t3", "level": 1},
+             {"id": "t4", "level": 2}, {"id": "t5", "level": 1}, {"id": "t6", "level": 0}]
+    assert report._wbs(tasks) == {"t1": "1", "t2": "2", "t3": "2.1", "t4": "2.1.1",
+                                  "t5": "2.2", "t6": "3"}
+
+
+def test_percent_planned_tracks_the_calendar():
+    """% Planned is where the schedule says a task should be today — the other half of the
+    planned-vs-actual comparison."""
+    import report
+    from datetime import date
+    t = date(2026, 2, 15)
+    assert report._pct_planned("2026-01-01", "2026-01-12", t) == 100   # finished
+    assert report._pct_planned("2026-04-03", "2026-04-07", t) == 0     # not started
+    assert report._pct_planned("2026-02-15", "2026-02-15", t) == 100   # milestone today
+    assert 30 <= report._pct_planned("2026-01-23", "2026-04-02", t) <= 36   # mid-flight
+    assert report._pct_planned(None, "2026-04-02", t) is None
+
+
+def test_duration_display_uses_weeks_when_they_divide():
+    import report
+    assert [report._dur_display(d) for d in (0, 1, 5, 7, 14, 10)] == \
+        ["0d", "1d", "5d", "1 wk", "2 wks", "10d"]

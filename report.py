@@ -70,6 +70,47 @@ def _warnings(ws: list) -> str:
     return "\n".join(out)
 
 
+def _wbs(tasks: list) -> dict:
+    """Outline numbers (1, 1.1, 1.1.2) from the task hierarchy — what MS Project calls WBS.
+    Derived on read like everything else here; nothing is stored."""
+    out, counters = {}, []
+    for t in tasks:
+        lv = int(t.get("level") or 0)
+        counters = counters[:lv + 1]
+        while len(counters) <= lv:
+            counters.append(0)
+        counters[lv] += 1
+        out[t["id"]] = ".".join(str(c) for c in counters)
+    return out
+
+
+def _dur_display(days: float) -> str:
+    """Durations the way a schedule reads them: weeks when they divide evenly, else days."""
+    if not days:
+        return "0d"
+    if days >= 7 and days % 7 == 0:
+        w = int(days // 7)
+        return f"{w} wk" if w == 1 else f"{w} wks"
+    return f"{days:g}d"
+
+
+def _pct_planned(start: str, end: str, today=None) -> int | None:
+    """Where a task SHOULD be today, from its dates alone — Project's "% Planned".
+
+    Comparing this against actual % complete is what turns a plan printout into a status
+    report: 99% planned against 62% complete is the sentence "this is behind"."""
+    today = today or datetime.now().date()
+    a, b = schedule._parse_date(start), schedule._parse_date(end)
+    if not a or not b:
+        return None
+    if today >= b:
+        return 100
+    if today <= a:
+        return 0
+    span = (b - a).days
+    return round(100 * (today - a).days / span) if span else 100
+
+
 def _name_cell(t: dict, show_critical: bool = True) -> str:
     """The Task column, MS-Project style: outline indent, then markers, then the name.
 
@@ -93,35 +134,56 @@ def _name_cell(t: dict, show_critical: bool = True) -> str:
     return f"{indent}{marks}{body}"
 
 
-def _task_table(tasks: list, unscheduled: bool, undated: set) -> list:
-    """One ordered table in plan order, the way a Gantt view lists rows.
+def _task_table(tasks: list, unscheduled: bool, undated: set, sch: dict, prog: dict) -> list:
+    """One ordered table in plan order, the way a Gantt view lists rows — WBS, name, duration,
+    dates, planned-vs-actual progress, float, predecessors, owner.
 
-    Dates and float are dropped when the plan has no durations — they would all be the same
-    invented day, and a column of fiction is worse than a missing column."""
-    cols = ["#", "Task", "Dur"]
+    Dates, float and % planned are dropped when the plan has no durations: they would all derive
+    from the same invented one-day-per-task schedule, and a column of fiction is worse than a
+    missing column."""
+    wbs = _wbs(tasks)
+    cols = ["WBS", "#", "Task", "Dur"]
     if not unscheduled:
-        cols += ["Start", "Finish", "Float"]
-    cols += ["Pred", "Owner", "%"]
+        cols += ["Start", "Finish", "% Plan", "% Done", "Float"]
+    else:
+        cols += ["% Done"]
+    cols += ["Pred", "Owner"]
     rows = ["| " + " | ".join(cols) + " |",
             "|" + "|".join(["---"] * len(cols)) + "|"]
+
+    if not unscheduled:      # the PROJECT SUMMARY row Project puts at outline level 0
+        planned = _pct_planned(sch["start"], sch["finish"])
+        rows.append("| **0** |  | **PROJECT SUMMARY** | "
+                    f"**{_dur_display(sch.get('duration_days') or 0)}** | "
+                    f"**{sch['start']}** | **{sch['finish']}** | "
+                    f"**{planned if planned is not None else '—'}%** | "
+                    f"**{prog.get('pct', 0)}%** |  |  |  |")
+
     for t in tasks:
         # On an unscheduled plan every task was ASSUMED to be a day and every task therefore
         # lands on the critical path. Showing either would be inventing data, so a task with no
         # declared duration gets a blank cell and the critical marker is suppressed entirely.
         dur = "" if (t.get("is_summary") or t["id"] in undated) else (
-            "0d" if t.get("is_milestone") else store._fmt_dur(t.get("duration_days") or 0))
-        cells = [f"`{t['id']}`", _name_cell(t, show_critical=not unscheduled), dur]
+            "0d" if t.get("is_milestone") else _dur_display(t.get("duration_days") or 0))
+        bold = t.get("is_summary")
+        def b(x):                                   # summary rows read as headings, as in Project
+            return f"**{x}**" if bold and x else x
+        cells = [b(wbs.get(t["id"], "")), f"`{t['id']}`",
+                 _name_cell(t, show_critical=not unscheduled), b(dur)]
         if not unscheduled:
             fl = t.get("total_float_days")
-            cells += [t.get("start") or "", t.get("end") or "",
+            planned = _pct_planned(t.get("start"), t.get("end"))
+            cells += [b(t.get("start") or ""), b(t.get("end") or ""),
+                      b(f"{planned}%" if planned is not None else "—"),
+                      b(f"{t.get('pct') or 0}%"),
                       # a summary's duration and float are both rolled up from its children,
                       # so neither belongs on the summary row itself
                       "" if t.get("is_summary") else
-                      ("—" if t.get("critical") else (store._fmt_dur(fl) if fl else "0d"))]
+                      ("—" if t.get("critical") else (_dur_display(fl) if fl else "0d"))]
+        else:
+            cells += [b(f"{t.get('pct') or 0}%")]
         pred = store._fmt_deps(t.get("deps") or [])
-        cells += [f"`{pred}`" if pred else "",
-                  str(t.get("who") or ""),
-                  f"{t.get('pct') or 0}%"]
+        cells += [f"`{pred}`" if pred else "", str(t.get("who") or "")]
         rows.append("| " + " | ".join(cells) + " |")
     return rows
 
@@ -254,11 +316,13 @@ def compose(pid: str) -> str:
              f"{len(todo)} not started"
              + ("" if unscheduled else f" · {len(crit)} on the critical path"))
     L.append("")
-    L += _task_table(tasks, unscheduled, undated)
+    L += _task_table(tasks, unscheduled, undated, sch, prog)
     L.append("")
     legend = "✔ done · ⊘ blocked · ◆ milestone · **bold** = summary row"
     if not unscheduled:
-        legend += " · ● critical path · Float = total slack, — on the critical path"
+        legend += (" · ● critical path · Float = total slack, — on the critical path"
+                   " · **% Plan** = where the schedule says it should be today, **% Done** = where"
+                   " it is — a gap between them is the thing to look at")
     L.append(f"<sub>{legend}</sub>")
     L.append("")
     late = [t for t in tasks if t.get("deadline_missed_days")]
