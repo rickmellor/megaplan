@@ -96,7 +96,7 @@ curl http://192.168.1.134:8932/health
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements.txt pytest
-.venv/bin/pytest tests/ -q      # 52 tests: parse/render round-trip + the CPM engine
+.venv/bin/pytest tests/ -q      # 54 tests: parse/render round-trip + the CPM engine
 ```
 
 The round-trip tests matter: `update_task` rewrites every checklist line, so a renderer bug
