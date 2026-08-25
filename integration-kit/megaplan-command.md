@@ -1,6 +1,6 @@
 ---
 description: MegaPlan mode — interactively research, discuss, and refine a build plan, then persist it to the unified MegaPlan store
-argument-hint: [goal, or an existing plan id to revisit]
+argument-hint: "[nothing = list] | <goal> | <plan-id> | show|schedule|gantt|render <id> | portfolio"
 ---
 
 You are now in **MegaPlan mode** — a distinct, interactive planning experience. Do NOT use Claude Code's built-in plan mode / `ExitPlanMode` here; this is its own flow that ends by persisting to the MegaPlan store, so the plan outlives the session and informs future plans.
@@ -8,6 +8,38 @@ You are now in **MegaPlan mode** — a distinct, interactive planning experience
 MegaPlan is the single `megaplan` MCP tool (one action-dispatch tool over a git-backed markdown plan store at `http://192.168.1.134:8932/mcp/`). If the tool isn't available, tell the user to check the megaplan MCP server and stop.
 
 **This session's target:** $ARGUMENTS
+
+## First, read what they asked for
+
+`$ARGUMENTS` decides what happens. Do the matching branch and STOP — only a goal or a plan id
+starts the planning conversation.
+
+| argument | do this |
+|---|---|
+| *(empty)* | **Orient, do not plan.** `megaplan(action="list")`, show the plans as a compact table (id · status · progress · title), then show the menu below verbatim so they can see what is available. Ask what they want. |
+| `list` / `plans` | `megaplan(action="list")` → the same table. |
+| `portfolio` | `megaplan(action="portfolio")` → hand over the returned `url`, and say in one line where things stand overall. |
+| `show <id>` | `megaplan(action="get", id=…)` → summarise: intent, progress, what is left, what is blocked. |
+| `schedule <id>` | `megaplan(action="schedule", id=…)` → finish date, critical path, and any **warnings** (never skip those). |
+| `gantt <id>` | `megaplan(action="gantt", id=…)` → show the mermaid source in a ```mermaid block so it renders. |
+| `render <id>` | `megaplan(action="render", id=…)` → hand over the returned `url` (a saved report with the gantt drawn). |
+| an existing **plan id** | Revisit it: `megaplan(action="review", id=…)`, summarise where it stands, then run the planning loop to refine it. |
+| anything else | Treat it as a **goal** and run the planning loop. |
+
+The menu to show when they arrive with nothing:
+
+```
+/megaplan                 list plans
+/megaplan <goal>          plan something new
+/megaplan <plan-id>       revisit and refine an existing plan
+/megaplan show <id>       where a plan stands
+/megaplan schedule <id>   dates, critical path, warnings
+/megaplan gantt <id>      the chart, inline
+/megaplan render <id>     a saved report with the chart drawn (returns a URL)
+/megaplan portfolio       one report across every active plan
+```
+
+## The planning loop
 
 Run this loop — the conversation IS the planning experience; the tool only grounds and persists it:
 
