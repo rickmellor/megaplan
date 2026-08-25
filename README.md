@@ -137,7 +137,9 @@ over the live store and diff against the old output.
 - **Claude Code** — add to `~/.claude.json` `mcpServers`: `{"megaplan": {"type": "http", "url": "http://192.168.1.134:8932/mcp/"}}`.
 - **input** (formerly qchat) — add to `~/.config/input/settings.json` `mcp_servers`: `[{"name": "megaplan", "url": "http://192.168.1.134:8932/mcp/"}]` (auto-registers **disabled**; enable in `/tools`), or `/mcp add megaplan http://192.168.1.134:8932/mcp/`.
 
-See `integration-kit/` for ready-to-paste snippets.
+See [`integration-kit/`](integration-kit/README.md) for ready-to-paste snippets **and the
+`/megaplan` command file** — note the MCP server and the slash command install separately, so a
+machine can have the tool without the command.
 
 ## Phase 2 (later)
 
