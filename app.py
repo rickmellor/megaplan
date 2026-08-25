@@ -6,7 +6,7 @@
 The model-facing MCP surface is a single action-dispatch tool so planning feels like one
 thing, not 16 CRUD verbs. Every op is still reachable programmatically via REST (`/op`
 takes {action, …} and the convenience routes mirror the common reads/writes). Plans are
-informed by MemoryOS (retrieval) but stored only here.
+informed by a memory service (retrieval, soft dependency) but stored only here.
 """
 
 import os
@@ -234,7 +234,7 @@ try:
         memory-informed plan store. Set `action` and pass only the params it needs.
 
         READ:
-          context      goal[, tags, limit] — related existing plans + MemoryOS knowledge
+          context      goal[, tags, limit] — related existing plans + recalled memory
                        for a goal. Use FIRST when planning, to leverage prior work.
           list         [status, priority, tag, include_archived, sort] — plan summaries.
           get          id — one plan: frontmatter + tasks (stable tN ids) + progress + body.

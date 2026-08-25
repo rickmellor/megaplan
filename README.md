@@ -1,10 +1,10 @@
 # MegaPlan service
 
 A persistent, git-backed **markdown plan store**, exposed **MCP-first** so any client
-(Claude Code, `input`/qchat, anything speaking MCP) can create and manage plans that
-live together and inform each other. Plans are **informed by** MemoryOS (retrieval) but
-stored only here. Modeled on `../memoryos-service` (FastMCP 2.x on FastAPI, streamable
-HTTP, docker on the NAS).
+(Claude Code, `input`, anything speaking MCP) can create and manage plans that live
+together and inform each other. Plans are **informed by** an [Astoria](https://github.com/rickmellor/astoria)
+memory service (retrieval, soft dependency) but stored only here. FastMCP 2.x on FastAPI,
+streamable HTTP, docker.
 
 - **Endpoint:** `http://<nas>:8932/mcp/` (streamable HTTP MCP) + REST (`/plans`, `/context`, `/health`).
 - **Store:** one markdown file per plan under `/data` (a git repo); every mutation auto-commits (versioned history).
@@ -24,7 +24,7 @@ megaplan(action, …)
 ```
 
 The planning hot path is just two moves: `megaplan(action="context", goal=…)` to ground in
-related prior work + MemoryOS knowledge, then `megaplan(action="save", title=…, body=…)` with
+related prior work + recalled memory, then `megaplan(action="save", title=…, body=…)` with
 the whole plan (incl. a `## Tasks` checklist) in the body. `save` upserts (create, or patch if
 the `id` exists). Every op is still reachable programmatically over REST via
 `POST /op {"action": …, …}` plus the convenience routes (`/plans`, `/plans/{id}`, `/context`).
