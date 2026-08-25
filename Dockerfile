@@ -7,6 +7,14 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# The gantt renderer is vendored INTO the image so a report renders with no internet and no
+# CDN dependency at view time. Pinned major; ~3.5 MB.
+RUN mkdir -p /app/static \
+ && python -c "import urllib.request as u; \
+u.urlretrieve('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js', \
+'/app/static/mermaid.min.js')" \
+ && test -s /app/static/mermaid.min.js
+
 COPY app.py store.py memory.py schedule.py report.py /app/
 
 # Run as uid 1000 so the bind-mounted /data git repo is owned by the NAS user.

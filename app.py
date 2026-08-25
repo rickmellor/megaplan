@@ -12,7 +12,7 @@ informed by a memory service (retrieval, soft dependency) but stored only here.
 import os
 
 from fastapi import APIRouter, FastAPI, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
 import memory
@@ -23,7 +23,7 @@ import store
 store.ensure_repo()
 
 VALID_ACTIONS = ("context", "list", "get", "deps", "graph", "blocked_by", "time_report",
-                 "review", "schedule", "gantt", "render", "reports", "save", "update",
+                 "review", "schedule", "gantt", "render", "portfolio", "reports", "save", "update",
                  "add_task", "update_task", "complete", "depend", "log_time", "archive", "baseline")
 
 # scheduling attributes accepted by save/add_task/update_task
@@ -111,6 +111,8 @@ def do_action(action, p):
                                                          p.get("label_max", 60))})
     if a == "render":
         return _safe(report.render, p["id"], p.get("save", True))
+    if a == "portfolio":
+        return report.render_portfolio(p.get("save", True), p.get("include_done", False))
     if a == "reports":
         return report.list_reports(p.get("id") or None)
     if a == "review":
@@ -245,16 +247,26 @@ def rest_reports(id: str | None = None):
     return report.list_reports(id)
 
 
+@router.get("/static/mermaid.min.js")
+def rest_mermaid():
+    """The gantt renderer, served from this box so a report needs no internet."""
+    p = "/app/static/mermaid.min.js"
+    if not os.path.isfile(p):
+        raise HTTPException(404, "mermaid bundle missing from the image")
+    return FileResponse(p, media_type="application/javascript")
+
+
 @router.get("/reports/{name}")
 def rest_report(name: str):
-    """Serve a saved report as markdown. Name-only (no path separators) — the reports dir is
-    not a file server."""
-    if "/" in name or "\\" in name or not name.endswith(".md"):
-        raise HTTPException(400, "reports are addressed by file name")
+    """Serve a saved report. `.html` is the readable view, `.md` the source. Name-only (no path
+    separators) — the reports dir is not a file server."""
+    if "/" in name or "\\" in name or not name.endswith((".md", ".html")):
+        raise HTTPException(400, "reports are addressed by file name (.md or .html)")
     path = os.path.join(report.reports_dir(), name)
     if not os.path.isfile(path):
         raise HTTPException(404, f"no report {name}")
-    return PlainTextResponse(open(path, encoding="utf-8").read(), media_type="text/markdown")
+    kind = "text/html" if name.endswith(".html") else "text/markdown"
+    return PlainTextResponse(open(path, encoding="utf-8").read(), media_type=kind)
 
 
 @router.post("/context")
@@ -308,6 +320,9 @@ try:
                        float, critical path, and warnings. Dates are DERIVED, never stored.
           gantt        id[, group=outline|who, include_done, label_max] — Mermaid `gantt`
                        source (bar labels truncated to label_max chars, 0 = no limit).
+          portfolio    [include_done] — ONE report across every active plan: aggregate
+                       progress, a table of plans with schedule and blockers, a timeline
+                       gantt, and what is blocked. Use for "where does everything stand".
           reports      [id] — saved reports, newest first, with their URLs.
 
         RENDER (writes a file, auto-commits):
@@ -396,3 +411,28 @@ except Exception as e:  # MCP is best-effort; REST must survive
     app = FastAPI(title="MegaPlan service")
 
 app.include_router(router)
+
+
+@app.on_event("startup")
+async def _autorender():
+    """Keep reports current without anyone asking. Off unless MEGAPLAN_AUTORENDER_H is set.
+
+    Server-side on purpose: the NAS is always on, so reports stay fresh even when the machines
+    that create plans are powered off. Only plans that actually changed are re-rendered."""
+    if report.AUTORENDER_H <= 0:
+        return
+    import asyncio
+
+    async def loop():
+        await asyncio.sleep(90)                       # let the service settle before the first pass
+        while True:
+            try:
+                r = await asyncio.to_thread(report.refresh)
+                if r["rendered"] or r["failed"]:
+                    print(f"autorender: {len(r['rendered'])} rendered, "
+                          f"{len(r['unchanged'])} unchanged, {len(r['failed'])} failed", flush=True)
+            except Exception as e:                    # a refresh must never take the service down
+                print(f"autorender FAILED: {e}", flush=True)
+            await asyncio.sleep(report.AUTORENDER_H * 3600)
+
+    asyncio.create_task(loop())

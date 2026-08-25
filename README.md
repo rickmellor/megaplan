@@ -92,6 +92,26 @@ curl -s -X POST http://<nas>:8932/op -d '{"action":"render","id":"<id>"}'
 curl -s http://<nas>:8932/reports                 # every saved report, newest first
 ```
 
+Every render writes a **markdown** file and a rendered **HTML** sibling. The returned `url` is
+the HTML one — a self-contained page with the gantt actually drawn, styled, light/dark aware.
+Mermaid is vendored into the image and served from `/static/mermaid.min.js`, so a report renders
+with no internet and no CDN. `markdown_url` is the source, which is what agents and git diffs
+want.
+
+```bash
+curl -s -X POST http://<host>:8932/op -d '{"action":"portfolio"}'   # one report, ALL plans
+```
+
+`portfolio` covers every non-archived plan: aggregate progress, a table of plans with schedule
+and blockers linking to each plan's own report, a timeline gantt, and what is blocked. Plans that
+carry no task durations are left out of the timeline rather than drawn at a fake one day each.
+
+Set `MEGAPLAN_AUTORENDER_H=6` and the service re-renders changed plans (and the portfolio) on
+that cadence, so `…-latest.html` is current without anyone asking. Only plans whose file is newer
+than their last report are re-rendered — an unchanged plan would just add git noise. This runs
+server-side deliberately: the NAS is always on, so reports stay fresh even when the machines that
+write plans are powered off.
+
 Reports are written to `reports/` inside the store and committed like any other mutation — a
 progress report is a point-in-time record, which is exactly the kind of thing worth having
 history for. Each render writes a timestamped file plus a `-latest.md` that keeps a stable URL.
