@@ -23,7 +23,8 @@ import store
 store.ensure_repo()
 
 VALID_ACTIONS = ("context", "list", "get", "deps", "graph", "blocked_by", "time_report",
-                 "review", "schedule", "gantt", "render", "portfolio", "reports", "save", "update",
+                 "review", "schedule", "gantt", "report", "render", "portfolio", "reports",
+                 "save", "update",
                  "add_task", "update_task", "complete", "depend", "log_time", "archive", "baseline")
 
 # scheduling attributes accepted by save/add_task/update_task
@@ -51,7 +52,8 @@ def _exists(pid):
 # What each action cannot work without. Checked up front because the branches below index
 # `p` directly, and a bare KeyError escapes _safe — over REST that surfaced as a 500.
 REQUIRED = {"get": ("id",), "deps": ("id",), "blocked_by": ("id",), "review": ("id",),
-            "schedule": ("id",), "gantt": ("id",), "render": ("id",), "update": ("id",),
+            "schedule": ("id",), "gantt": ("id",), "report": ("id",), "render": ("id",),
+            "update": ("id",),
             "add_task": ("id", "text"), "update_task": ("id", "task_id"),
             "complete": ("id", "task_id"), "depend": ("id", "depends_on_id"),
             "log_time": ("id", "hours"), "archive": ("id",), "baseline": ("id",),
@@ -109,7 +111,7 @@ def do_action(action, p):
                               "source": schedule.mermaid(p["id"], p.get("group", "outline"),
                                                          p.get("include_done", True),
                                                          p.get("label_max", 60))})
-    if a == "render":
+    if a in ("report", "render"):        # `render` kept as an alias: it shipped under that name
         return _safe(report.render, p["id"], p.get("save", True))
     if a == "portfolio":
         return report.render_portfolio(p.get("save", True), p.get("include_done", False))
@@ -325,8 +327,8 @@ try:
                        gantt, and what is blocked. Use for "where does everything stand".
           reports      [id] — saved reports, newest first, with their URLs.
 
-        RENDER (writes a file, auto-commits):
-          render       id[, save=true] — a full progress report for a plan as ONE markdown
+        REPORTS (writes a file, auto-commits):
+          report       id[, save=true] — a full progress report for a plan as ONE markdown
                        document: intent, progress bar, effort, schedule summary, scheduler
                        warnings, a Mermaid gantt, a baseline-tracking section when the plan
                        has a baseline, and tasks grouped by state. Saved under reports/ in
@@ -334,6 +336,8 @@ try:
                        than pasting the whole report. `save=false` returns the markdown
                        inline without writing anything. Use this when someone asks how a
                        plan/project is going, for a status write-up, or for charts.
+                       (`render` is accepted as an alias. NOTE the plural `reports` LISTS
+                       saved reports — it does not make one.)
 
         WRITE (auto-commit to git):
           save         title, body[, status, priority, tags, depends_on, est_hours] —

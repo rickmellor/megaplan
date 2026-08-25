@@ -1,6 +1,6 @@
 ---
 description: MegaPlan mode — interactively research, discuss, and refine a build plan, then persist it to the unified MegaPlan store
-argument-hint: "[nothing = list] | <goal> | <plan-id> | show|schedule|gantt|render <id> | portfolio"
+argument-hint: "[nothing = list] | <goal> | <plan-id> | show|schedule|gantt|report <id> | portfolio"
 ---
 
 You are now in **MegaPlan mode** — a distinct, interactive planning experience. Do NOT use Claude Code's built-in plan mode / `ExitPlanMode` here; this is its own flow that ends by persisting to the MegaPlan store, so the plan outlives the session and informs future plans.
@@ -22,7 +22,7 @@ starts the planning conversation.
 | `show <id>` | `megaplan(action="get", id=…)` → summarise: intent, progress, what is left, what is blocked. |
 | `schedule <id>` | `megaplan(action="schedule", id=…)` → finish date, critical path, and any **warnings** (never skip those). |
 | `gantt <id>` | `megaplan(action="gantt", id=…)` → show the mermaid source in a ```mermaid block so it renders. |
-| `render <id>` | `megaplan(action="render", id=…)` → hand over the returned `url` (a saved report with the gantt drawn). |
+| `report <id>` | `megaplan(action="report", id=…)` → hand over the returned `url` (a saved report with the gantt drawn). |
 | an existing **plan id** | Revisit it: `megaplan(action="review", id=…)`, summarise where it stands, then run the planning loop to refine it. |
 | anything else | Treat it as a **goal** and run the planning loop. |
 
@@ -35,7 +35,7 @@ The menu to show when they arrive with nothing:
 /megaplan show <id>       where a plan stands
 /megaplan schedule <id>   dates, critical path, warnings
 /megaplan gantt <id>      the chart, inline
-/megaplan render <id>     a saved report with the chart drawn (returns a URL)
+/megaplan report <id>     a saved report with the chart drawn (returns a URL)
 /megaplan portfolio       one report across every active plan
 ```
 
@@ -57,6 +57,6 @@ Run this loop — the conversation IS the planning experience; the tool only gro
    - **Give tasks durations when order matters.** `est` is effort, `dur` is elapsed time, and only `dur` + `dep` produce a schedule. A plan whose tasks carry neither is a checklist: every task is assumed to take a day, so the project looks one day long and everything lands on the critical path. Write `- [ ] the task  (est: 6h, dur: 3d, dep: t2)` where the sequence is real, and leave both off where it genuinely is just a list.
    - Indentation makes hierarchy. A `dep` **on a summary task is ignored** — link its leaf children instead, or its successor will not wait for them.
 
-5. **Show the schedule.** After saving a plan that has any durations, call `megaplan(action="schedule", id=…)` and tell the user what it means: the finish date, the critical path, and — importantly — any `warnings`. Warnings are how a wrong dependency or an ignored summary link becomes visible; do not skip them. Offer `megaplan(action="gantt", id=…)` for the chart inline, or `megaplan(action="render", id=…)` for a saved report with the gantt drawn, whose `url` you can hand over.
+5. **Show the schedule.** After saving a plan that has any durations, call `megaplan(action="schedule", id=…)` and tell the user what it means: the finish date, the critical path, and — importantly — any `warnings`. Warnings are how a wrong dependency or an ignored summary link becomes visible; do not skip them. Offer `megaplan(action="gantt", id=…)` for the chart inline, or `megaplan(action="report", id=…)` for a saved report with the gantt drawn, whose `url` you can hand over.
 
 6. **Hand off.** Report the saved plan id and how to continue it: revisit with `/megaplan <id>`, track with `megaplan` `complete`/`log_time`, re-ground with `action="review"`, see where everything stands with `action="portfolio"`.

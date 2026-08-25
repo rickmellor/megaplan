@@ -335,7 +335,7 @@ def compose(pid: str) -> str:
 
     L.append("---")
     L.append(f"*MegaPlan report for `{pid}` · regenerate with "
-             f"`megaplan(action=\"render\", id=\"{pid}\")`*")
+             f"`megaplan(action=\"report\", id=\"{pid}\")`*")
     return "\n".join(L) + "\n"
 
 

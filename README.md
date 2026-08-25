@@ -80,7 +80,7 @@ export is the eventual answer for full fidelity.
 
 ## Progress reports
 
-`render` composes a plan into one readable markdown document — intent (the plan's own prose, not
+`report` composes a plan into one readable markdown document — intent (the plan's own prose, not
 a re-derivation from its tasks), a progress bar, effort, a schedule summary, grouped scheduler
 warnings, a Mermaid gantt, a baseline-tracking section when the plan has a baseline, and a task
 table.
@@ -93,13 +93,13 @@ unscheduled plan the date, float and critical columns are dropped entirely rathe
 with the scheduler's assumed one-day-per-task.
 
 ```bash
-curl -s -X POST http://<nas>:8932/op -d '{"action":"render","id":"<id>"}'
+curl -s -X POST http://<nas>:8932/op -d '{"action":"report","id":"<id>"}'
 #  -> {"url": "http://<nas>:8932/reports/<id>-20260825-111806.md",
 #      "latest_url": "http://<nas>:8932/reports/<id>-latest.md", ...}
 curl -s http://<nas>:8932/reports                 # every saved report, newest first
 ```
 
-Every render writes a **markdown** file and a rendered **HTML** sibling. The returned `url` is
+Every report writes a **markdown** file and a rendered **HTML** sibling. The returned `url` is
 the HTML one — a self-contained page with the gantt actually drawn, styled, light/dark aware.
 Mermaid is vendored into the image and served from `/static/mermaid.min.js`, so a report renders
 with no internet and no CDN. `markdown_url` is the source, which is what agents and git diffs
