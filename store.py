@@ -276,6 +276,21 @@ def task_set(t: dict, key: str, value) -> None:
         t["pert"] = pert if len(pert) == 3 else None
 
 
+def check_task_ids(body: str) -> None:
+    """Refuse to persist a body whose `<!-- tN -->` markers collide.
+
+    Deliberately called from writes, NOT from parse: a plan that is already corrupt must stay
+    READABLE so it can be fetched and repaired. Raising in the parser would make `get` throw and
+    leave the file editable only by hand on the server."""
+    ids = [t["id"] for t in parse_tasks(body) if t["id"]]
+    dupes = sorted({i for i in ids if ids.count(i) > 1}, key=lambda x: int(x[1:]))
+    if dupes:
+        raise ValueError(
+            f"duplicate task ids in the body: {', '.join(dupes)}. Every `<!-- tN -->` marker must "
+            "be unique — writes are refused because a duplicate makes every later copy "
+            "unreachable (lookups return the first match).")
+
+
 def assign_ids(tasks: list[dict]) -> list[dict]:
     """Fill in ids for unlabeled tasks with the smallest unused tN (deterministic)."""
     used = {int(t["id"][1:]) for t in tasks if t["id"]}
@@ -367,6 +382,7 @@ def read_post(pid: str) -> frontmatter.Post:
 
 
 def _dump(pid: str, post: frontmatter.Post, message: str) -> None:
+    check_task_ids(post.content)      # EVERY write funnels through here — validate once, here
     post["updated"] = _now()
     with open(_path(pid), "w") as f:
         f.write(frontmatter.dumps(post, sort_keys=False, allow_unicode=True))
@@ -446,7 +462,7 @@ def create_plan(title, body="", status="backlog", priority="medium", tags=None,
 
 
 def update_plan(pid, title=None, status=None, priority=None, tags=None,
-                est_hours=None, append_body=None):
+                est_hours=None, append_body=None, replace_body=None):
     with _lock:
         post = read_post(pid)
         if title is not None:
@@ -463,7 +479,9 @@ def update_plan(pid, title=None, status=None, priority=None, tags=None,
             post["tags"] = list(tags)
         if est_hours is not None:
             t = dict(post.get("time") or {}); t["est_hours"] = est_hours; post["time"] = t
-        if append_body:
+        if replace_body is not None:      # `save` on an existing id: the body IS the new plan
+            post.content = replace_body.strip() + "\n"
+        elif append_body:
             post.content = post.content.rstrip() + "\n\n" + append_body.strip() + "\n"
         _dump(pid, post, f"update {pid}")
         return full(post)

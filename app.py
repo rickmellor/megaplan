@@ -48,10 +48,43 @@ def _exists(pid):
     return bool(pid) and os.path.exists(store._path(pid))
 
 
+# What each action cannot work without. Checked up front because the branches below index
+# `p` directly, and a bare KeyError escapes _safe — over REST that surfaced as a 500.
+REQUIRED = {"get": ("id",), "deps": ("id",), "blocked_by": ("id",), "review": ("id",),
+            "schedule": ("id",), "gantt": ("id",), "render": ("id",), "update": ("id",),
+            "add_task": ("id", "text"), "update_task": ("id", "task_id"),
+            "complete": ("id", "task_id"), "depend": ("id", "depends_on_id"),
+            "log_time": ("id", "hours"), "archive": ("id",), "baseline": ("id",),
+            "save": ("title",)}
+
+
+def _with_warnings(pid, result):
+    """Attach the CPM pass's warnings to a write's result.
+
+    A write that creates a broken graph — a dep on a task that does not exist, a dep on a
+    summary task (silently ignored by the scheduler) — used to return a perfectly successful
+    acknowledgement, and the damage was only visible if you separately called `schedule`. The
+    write still succeeds; it just stops being silent."""
+    if not isinstance(result, dict) or "error" in result:
+        return result
+    try:
+        w = schedule.compute(pid).get("warnings") or []
+    except Exception:
+        return result                      # a report on the write must never fail the write
+    if w:
+        result["warnings"] = w
+    return result
+
+
 def do_action(action, p):
     """The one dispatcher behind both the `megaplan` MCP tool and REST `/op`. `p` is a dict
     of params (only those relevant to `action` are read). Returns a dict or list."""
     a = (action or "").strip().lower()
+    if a not in VALID_ACTIONS:
+        return {"error": f"unknown action {a!r}. valid: {', '.join(VALID_ACTIONS)}"}
+    missing = [k for k in REQUIRED.get(a, ()) if p.get(k) in (None, "")]
+    if missing and not (a == "save" and p.get("id")):      # save-as-patch needs only an id
+        return {"error": f"action {a!r} requires: {', '.join(missing)}"}
 
     # ---- reads ----
     if a == "context":
@@ -90,10 +123,13 @@ def do_action(action, p):
 
     # ---- writes (auto-commit) ----
     if a == "save":
-        if _exists(p.get("id")):                     # upsert: existing id → patch
+        if _exists(p.get("id")):                     # upsert: existing id → patch in place
+            # `body` REPLACES. It used to be forwarded as append_body, so re-saving a plan
+            # appended a second copy of itself — duplicate task ids, unreachable tasks, and a
+            # critical path computed over a doubled graph. `append_body` still appends.
             return _safe(store.update_plan, p["id"], p.get("title"), p.get("status"),
                          p.get("priority"), p.get("tags"), p.get("est_hours"),
-                         p.get("append_body") or p.get("body"))
+                         p.get("append_body"), p.get("body") or None)
         r = _safe(store.create_plan, p["title"], p.get("body", ""), p.get("status", "backlog"),
                   p.get("priority", "medium"), p.get("tags") or [],
                   p.get("depends_on") or [], p.get("est_hours"))
@@ -109,15 +145,17 @@ def do_action(action, p):
         return _safe(store.update_plan, p["id"], p.get("title"), p.get("status"),
                      p.get("priority"), p.get("tags"), p.get("est_hours"), p.get("append_body"))
     if a == "add_task":
-        return _safe(store.add_task, p["id"], p["text"], p.get("est_hours"),
-                     p.get("indent"), **_sched_kwargs(p))
+        return _with_warnings(p["id"], _safe(store.add_task, p["id"], p["text"],
+                                             p.get("est_hours"), p.get("indent"),
+                                             **_sched_kwargs(p)))
     if a == "update_task":
-        return _safe(store.update_task, p["id"], p["task_id"], p.get("text"),
-                     p.get("done"), p.get("blocked"), p.get("est_hours"), **_sched_kwargs(p))
+        return _with_warnings(p["id"], _safe(store.update_task, p["id"], p["task_id"],
+                                             p.get("text"), p.get("done"), p.get("blocked"),
+                                             p.get("est_hours"), **_sched_kwargs(p)))
     if a == "complete":
-        return _safe(store.complete_task, p["id"], p["task_id"])
+        return _with_warnings(p["id"], _safe(store.complete_task, p["id"], p["task_id"]))
     if a == "depend":
-        return _safe(store.add_dependency, p["id"], p["depends_on_id"])
+        return _with_warnings(p["id"], _safe(store.add_dependency, p["id"], p["depends_on_id"]))
     if a == "log_time":
         return _safe(store.log_time, p["id"], p["hours"], p.get("task_id"), p.get("note"))
     if a == "archive":
@@ -288,10 +326,15 @@ try:
                        '## Tasks' checklist ('- [ ] do the thing (est: 2h)'); tasks get
                        stable ids automatically. Returns the plan + (unless
                        attach_context=false) related work under 'context'. If `id` is given
-                       and already exists, patches it instead of creating.
+                       and already exists this PATCHES it, and `body` REPLACES the stored
+                       body (use `append_body` to add to it instead). Note save is the
+                       create/replace path — for ordinary edits use update_task/add_task,
+                       which rewrite single lines in place and cannot disturb the rest.
           update       id[, title, status, priority, tags, est_hours, append_body].
           add_task     id, text[, est_hours].
-          update_task  id, task_id[, text, done, blocked, est_hours].
+          update_task  id, task_id[, text, done, blocked, est_hours]. Pass "-" for any
+                       scheduling attribute (dep/pct/who/start/deadline/dur/o/m/p) to CLEAR
+                       it — e.g. update_task(id, "t3", dep="-") removes a wrong dependency.
           complete     id, task_id — mark done (auto-completes the plan when all done).
           depend       id, depends_on_id — cross-plan dependency (cycle-checked).
           log_time     id, hours[, task_id, note].
@@ -313,14 +356,21 @@ try:
           deadline  soft (YYYY-MM-DD): never moves dates, reported when missed.
           o/m/p     PERT three-point; used for `dur` when `dur` is absent.
         Indentation makes hierarchy: an indented task is a child, its parent is a summary
-        whose bar spans its children. `est`/`spent` stay WORK (effort), not duration.
+        whose bar spans its children. A `dep` ON a summary task is IGNORED (the scheduler
+        warns) — link its leaf children instead, or the successor will not wait for them.
+        `est`/`spent` stay WORK (effort), not duration.
         The project anchor is the plan's `created` date unless `update` sets schedule_start.
 
           - [ ] Wire the data plane  (est: 6h, dur: 3d, dep: t4FS+2d, pct: 40, who: rick)
             - [ ] Contract v1  (dur: 1d)
           - [ ] Ship  (dur: 0d, dep: t9)
         """
-        params = {k: v for k, v in locals().items()
+        # Empty values are dropped because the signature's ""/None defaults make "absent" and
+        # "empty" indistinguishable — which also meant a scheduling attribute could never be
+        # REMOVED once set (a mistyped `dep: t99` was uneditable except on the server). "-"
+        # is the escape hatch: it reaches the store as "" and deletes the key.
+        params = {k: ("" if (k in SCHED_PARAMS and v in ("-", "none", "null")) else v)
+                  for k, v in locals().items()
                   if k not in ("action",) and v not in ("", None)}
         r = do_action(action, params)
         # Write actions return a COMPACT acknowledgement (no body, no raw task lines) so a
