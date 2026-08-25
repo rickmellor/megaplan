@@ -17,16 +17,18 @@ thing, not 16 CRUD verbs (and only one schema loads per request):
 
 ```
 megaplan(action, …)
-  reads:  context · list · get · deps · graph · blocked_by · time_report · review
-          schedule · gantt
-  writes: save · update · add_task · update_task · complete · depend · log_time · archive
-          baseline
+  reads:   context · list · get · deps · graph · blocked_by · time_report · review
+           schedule · gantt
+  reports: report · portfolio · reports          (report writes a file; the plural LISTS them)
+  writes:  save · update · add_task · update_task · complete · depend · log_time · archive
+           baseline
 ```
 
 The planning hot path is just two moves: `megaplan(action="context", goal=…)` to ground in
 related prior work + recalled memory, then `megaplan(action="save", title=…, body=…)` with
-the whole plan (incl. a `## Tasks` checklist) in the body. `save` upserts (create, or patch if
-the `id` exists). Every op is still reachable programmatically over REST via
+the whole plan (incl. a `## Tasks` checklist) in the body. `save` upserts — creating, or on an
+existing `id` patching it, with `body` REPLACING the stored body. Every op is still reachable
+programmatically over REST via
 `POST /op {"action": …, …}` plus the convenience routes (`/plans`, `/plans/{id}`, `/context`).
 
 **Interactive planning:** Claude Code gets a `/megaplan` command and `input` gets a `/plan`
@@ -85,12 +87,21 @@ a re-derivation from its tasks), a progress bar, effort, a schedule summary, gro
 warnings, a Mermaid gantt, a baseline-tracking section when the plan has a baseline, and a task
 table.
 
-The task table is a Gantt-view row per task, in plan order: id, outline-indented name, duration,
-start, finish, total float, predecessors in MS-Project notation, owner and percent complete —
-with `✔` done, `⊘` blocked, `◆` milestone, `●` on the critical path, and summary rows in bold.
-Duration and float are left blank on summary rows (both are rolled up from children), and on an
-unscheduled plan the date, float and critical columns are dropped entirely rather than filled
-with the scheduler's assumed one-day-per-task.
+The task table is a Gantt-view row per task, in plan order, modelled on a Project schedule
+view: **WBS** outline number, task id, outline-indented name, duration, start, finish,
+**% Plan**, **% Done**, total float, predecessors in MS-Project notation, and owner. A bold
+**PROJECT SUMMARY** row at outline level 0 rolls up the whole plan. Markers: `✔` done,
+`⊘` blocked, `◆` milestone, `●` on the critical path, summary rows in bold.
+
+`% Plan` is where the schedule says a task should be *today*; `% Done` is where it is. The gap
+between them is the point — "99% planned, 62% complete" is the sentence "this is behind", and
+a task list alone never says it.
+
+Two kinds of cell are deliberately empty. A summary row shows no duration and no float — both
+are rolled up from its children, and a number there would imply it was set on the row. And on
+an **unscheduled** plan the date, float, critical and % Plan columns disappear entirely: with no
+durations every task is assumed to take a day, so those values would all be invented. A column
+of fiction is worse than a missing column.
 
 ```bash
 curl -s -X POST http://<nas>:8932/op -d '{"action":"report","id":"<id>"}'
