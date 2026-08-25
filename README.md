@@ -107,19 +107,113 @@ Two honest limits worth knowing:
   which makes the project look one day long and puts every task on the critical path. Rather than
   present that as fact, the report detects it and says so.
 
-## Deploy (NAS: /volume1/docker/megaplan)
+## Setup — server
+
+Needs Docker and a host that stays up. Everything lives in one directory; the plan store is a
+bind-mounted git repo, so the data is plain files you can read without the service running.
+
+**1. Put the code on the host.** There is no registry image — the host builds it. Copy the
+files the image needs (`tar`-over-`ssh` here because some NAS boxes restrict rsync):
 
 ```bash
 cd ~/repos/megaplan
-git commit -am "..." && git push          # always commit + push BEFORE the tar
-tar czf - Dockerfile docker-compose.yml app.py store.py memory.py schedule.py \
+git commit -am "..." && git push        # commit BEFORE shipping, so the host matches a known ref
+tar czf - Dockerfile docker-compose.yml app.py store.py memory.py schedule.py report.py \
           requirements.txt README.md .env.example \
-  | ssh root-dxp4800gt 'mkdir -p /volume1/docker/megaplan && tar xzf - -C /volume1/docker/megaplan'
-# first time: make the bind-mounted store writable by the container's uid 1000
-ssh root-dxp4800gt 'mkdir -p /volume1/docker/megaplan/data && chown -R 1000:1000 /volume1/docker/megaplan/data'
-ssh root-dxp4800gt 'cd /volume1/docker/megaplan && docker compose up -d --build'
-curl http://192.168.1.134:8932/health
+  | ssh <host> 'mkdir -p /volume1/docker/megaplan && tar xzf - -C /volume1/docker/megaplan'
 ```
+
+> Keep that file list in sync with the Dockerfile's `COPY` line. A module added to one and not
+> the other builds an image that dies on import — which is exactly how this service once went
+> down mid-deploy.
+
+**2. Configure.** `cp .env.example .env` on the host and set at least:
+
+| variable | why it matters |
+|---|---|
+| `MEGAPLAN_PUBLIC_URL` | how clients reach this box. `render` builds report URLs from it — leave it `localhost` and every report link is wrong |
+| `MEGAPLAN_DATA_PATH` | `/data` inside the container; leave it alone unless you change the mount |
+| `MEGAPLAN_GIT_NAME` / `_EMAIL` | the identity on every auto-commit |
+| `MEGAPLAN_MEMORY_URL` | optional — an Astoria `/recall` endpoint for related-plan context. Absent or unreachable just degrades `context`; nothing else notices |
+| `MEGAPLAN_OFFSITE_DIR` | optional — a share your cloud-sync tool mirrors, for the backup sidecar |
+
+**3. Ownership.** The container runs as uid 1000 and writes into the bind mount, so the store
+must be owned by it or every write fails with a permission error that looks like a git problem:
+
+```bash
+ssh <host> 'mkdir -p /volume1/docker/megaplan/{data,backups} \
+            && chown -R 1000:1000 /volume1/docker/megaplan/data'
+```
+
+**4. Start it.** `git init`, the git identity, and `safe.directory` are all handled on first boot
+by `store.ensure_repo()` — an empty `data/` is the expected starting state.
+
+```bash
+ssh <host> 'cd /volume1/docker/megaplan && docker compose up -d --build'
+curl -s http://<host>:8932/health        # {"status":"ok","plans_count":0,...}
+```
+
+Two containers come up: `megaplan` (the service) and `megaplan-backup`, a sidecar that writes a
+`git bundle` of the store every few hours, keeps a rotation, and copies to `MEGAPLAN_OFFSITE_DIR`
+if one is set. It only bundles when the store has actually changed.
+
+**Redeploying** is steps 1 and 4 again. `data/` is never in the tar, so the plan store is
+untouched by a rebuild.
+
+**Verifying:**
+
+```bash
+curl -s http://<host>:8932/health                              # service + memory reachability
+curl -s -X POST http://<host>:8932/op -d '{"action":"list"}'   # the plans
+ssh <host> 'docker exec megaplan git -C /data log --oneline -3'  # commits are landing
+ssh <host> 'docker logs megaplan-backup --tail 5'                # "backup ok" / "backup skip"
+```
+
+## Setup — Claude Code
+
+Two independent pieces, and only the first travels between machines. The MCP server is a
+network endpoint, so any machine that can reach the host gets the tool; the `/megaplan` command
+is a local file that has to exist on each machine. A machine with the tool and no slash command
+is a half-finished install, not a broken one.
+
+**1. The MCP server** — merge into `~/.claude.json`:
+
+```json
+"mcpServers": {
+  "megaplan": { "type": "http", "url": "http://<host>:8932/mcp/" }
+}
+```
+
+This gives the model the single `megaplan` tool — every action above, including `render`.
+
+**2. The `/megaplan` command** — the interactive planning mode (research → discuss → persist):
+
+```bash
+mkdir -p ~/.claude/commands
+ln -sfn "$PWD/integration-kit/megaplan-command.md" ~/.claude/commands/megaplan.md
+```
+
+A symlink tracks the repo as it changes; `cp` instead if you want it pinned.
+
+**3. Restart Claude Code.** Commands and MCP servers are both enumerated at session start, so
+neither appears in a session that was already running.
+
+**Verifying:** `/help` lists `/megaplan`, and asking *"what plans do I have?"* calls the tool.
+If the tool answers but `/megaplan` is unknown, you did step 1 and not step 2.
+
+## Setup — input
+
+```
+/mcp add megaplan http://<host>:8932/mcp/
+```
+
+Or merge `integration-kit/input-settings-snippet.json` into `~/.config/input/settings.json`.
+MCP servers auto-register **disabled** — enable megaplan's tool in `/tools`.
+
+There is no command file to install: `input`'s planning mode is `/plan` (alias `/megaplan`) and
+ships with the client.
+
+[`integration-kit/`](integration-kit/README.md) has ready-to-paste snippets for both clients.
 
 ## Tests
 
@@ -131,15 +225,6 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt pytest
 The round-trip tests matter: `update_task` rewrites every checklist line, so a renderer bug
 would corrupt whole plans. Before changing `parse_tasks`/`_render_task`, re-run the rewrite
 over the live store and diff against the old output.
-
-## Clients
-
-- **Claude Code** — add to `~/.claude.json` `mcpServers`: `{"megaplan": {"type": "http", "url": "http://192.168.1.134:8932/mcp/"}}`.
-- **input** (formerly qchat) — add to `~/.config/input/settings.json` `mcp_servers`: `[{"name": "megaplan", "url": "http://192.168.1.134:8932/mcp/"}]` (auto-registers **disabled**; enable in `/tools`), or `/mcp add megaplan http://192.168.1.134:8932/mcp/`.
-
-See [`integration-kit/`](integration-kit/README.md) for ready-to-paste snippets **and the
-`/megaplan` command file** — note the MCP server and the slash command install separately, so a
-machine can have the tool without the command.
 
 ## Phase 2 (later)
 
